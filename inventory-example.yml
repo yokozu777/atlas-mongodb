@@ -1,0 +1,22 @@
+---
+all:
+  children:
+    mongodb:
+      children:
+        mongo_cluster:
+          hosts:
+            mongo-01:
+              ansible_host: 192.168.1.160
+              hostname: mongo-01.mongodb.example.com
+              mongodb_data_disk: /dev/disk/by-id/wwn-0x5000c500c35c5820
+            mongo-02:
+              ansible_host: 192.168.1.161
+              hostname: mongo-02.mongodb.example.com
+              mongodb_data_disk: /dev/disk/by-id/wwn-0x5000c500c35c5821
+            mongo-03:
+              ansible_host: 192.168.1.162
+              hostname: mongo-03.mongodb.example.com
+              mongodb_data_disk: /dev/disk/by-id/wwn-0x5000c500c35c5822
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    ansible_user: localuser

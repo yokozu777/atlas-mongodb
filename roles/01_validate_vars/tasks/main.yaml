@@ -1,0 +1,41 @@
+---
+- name: Require exactly three MongoDB members
+  ansible.builtin.assert:
+    that:
+      - groups[mongodb_hosts] is defined
+      - groups[mongodb_hosts] | length == 3
+    fail_msg: Need exactly 3 hosts in {{ mongodb_hosts }}.
+
+- name: Require a data disk on every member
+  ansible.builtin.assert:
+    that:
+      - hostvars[item].mongodb_data_disk is defined
+      - hostvars[item].mongodb_data_disk | string | length > 0
+    fail_msg: >-
+      Host {{ item }} must set mongodb_data_disk to the second disk
+      (for example /dev/disk/by-id/wwn-…).
+      Got {{ hostvars[item].mongodb_data_disk | default('MISSING') }}.
+  loop: "{{ groups[mongodb_hosts] }}"
+
+- name: Require the replica set name and port
+  ansible.builtin.assert:
+    that:
+      - mongodb_replset_name is defined
+      - mongodb_replset_name | string | length > 0
+      - mongodb_port | int >= 1
+      - mongodb_port | int <= 65535
+      - mongodb_admin_user is defined
+      - mongodb_admin_user | string | length > 0
+    fail_msg: mongodb_replset_name, mongodb_port, and mongodb_admin_user must be set.
+
+- name: Require the admin password and key file
+  ansible.builtin.assert:
+    that:
+      - mongodb_admin_password is defined
+      - mongodb_admin_password | string is match(mongodb_secret_pattern)
+      - mongodb_keyfile is defined
+      - mongodb_keyfile | string is match('^[A-Za-z0-9+/=_-]{6,1024}$')
+    fail_msg: >-
+      mongodb_admin_password must match {{ mongodb_secret_pattern }}.
+      mongodb_keyfile must be 6-1024 characters from [A-Za-z0-9+/=_-].
+  no_log: true

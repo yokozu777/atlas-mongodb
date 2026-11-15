@@ -1,0 +1,32 @@
+let status;
+try {
+  status = db.adminCommand({ replSetGetStatus: 1 });
+} catch (error) {
+  status = { ok: 0, code: error.code, errmsg: error.message || String(error) };
+}
+if (status.members) {
+  print("ALREADY");
+  quit(0);
+}
+const message = status.errmsg || "";
+if (message.includes("Authentication") || message.includes("Unauthorized") || status.code === 13) {
+  print("ALREADY");
+  quit(0);
+}
+if (!(message.includes("NotYetInitialized") || message.includes("no replset config") || status.code === 94)) {
+  throw new Error(message || JSON.stringify(status));
+}
+const result = db.adminCommand({
+  replSetInitiate: {
+    _id: "{{ mongodb_replset_name }}",
+    members: [
+{% for host in groups[mongodb_hosts] | sort %}
+      { _id: {{ loop.index0 }}, host: "{{ hostvars[host].ansible_host | default(host) }}:{{ mongodb_port }}", priority: {{ 2 if loop.first else 1 }} }{{ "," if not loop.last else "" }}
+{% endfor %}
+    ]
+  }
+});
+if (!result.ok) {
+  throw new Error(JSON.stringify(result));
+}
+print("INITIATED");

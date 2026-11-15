@@ -1,0 +1,9 @@
+const status = db.adminCommand({ replSetGetStatus: 1 });
+const counts = {};
+for (const member of status.members) {
+  counts[member.stateStr] = (counts[member.stateStr] || 0) + 1;
+}
+if (status.members.length !== 3 || counts.PRIMARY !== 1 || counts.SECONDARY !== 2) {
+  throw new Error(JSON.stringify(counts));
+}
+print("OK");

@@ -1,0 +1,13 @@
+---
+profile: min
+
+exclude_paths:
+  - .cache/
+  - .ansible/
+  - workspace/
+  - tests/__pycache__/
+  - .git/
+
+skip_list: []
+
+verbosity: 1

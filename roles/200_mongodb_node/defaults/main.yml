@@ -1,0 +1,8 @@
+---
+mongodb_hosts: mongo_cluster
+mongodb_version: "9.0"
+mongodb_gpg_key_url: https://pgp.mongodb.com/server-9.asc
+mongodb_replset_name: atlas
+mongodb_port: 27017
+mongodb_data_dir: /var/lib/mongodb
+mongodb_keyfile_path: /etc/mongodb/keyfile

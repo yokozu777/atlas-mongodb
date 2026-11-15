@@ -1,0 +1,106 @@
+---
+- name: Install filesystem tools for the data disk
+  ansible.builtin.package:
+    name:
+      - xfsprogs
+      - gdisk
+      - parted
+    state: present
+
+- name: Require the host data disk
+  ansible.builtin.assert:
+    that:
+      - mongodb_data_disk is defined
+      - mongodb_data_disk | string | length > 0
+    fail_msg: >-
+      Set mongodb_data_disk on the host to the second disk
+      (for example /dev/disk/by-id/wwn-…).
+
+- name: Stat the data disk
+  ansible.builtin.stat:
+    path: "{{ mongodb_data_disk }}"
+    follow: true
+  register: _mongodb_disk
+
+- name: Require a block device for the data disk
+  ansible.builtin.assert:
+    that:
+      - _mongodb_disk.stat.exists
+      - _mongodb_disk.stat.isblk | default(false)
+    fail_msg: "mongodb_data_disk {{ mongodb_data_disk }} is not a block device."
+
+- name: Set the data partition path
+  ansible.builtin.set_fact:
+    mongodb_data_partition: "{{ mongodb_data_disk }}-part1"
+
+- name: Stat the data partition
+  ansible.builtin.stat:
+    path: "{{ mongodb_data_partition }}"
+    follow: true
+  register: _mongodb_part
+
+- name: Create one GPT partition on the data disk
+  ansible.builtin.command:
+    argv:
+      - sgdisk
+      - --new=1:1MiB:0
+      - --typecode=1:8300
+      - "{{ mongodb_data_disk }}"
+  when: not _mongodb_part.stat.exists
+  changed_when: true
+
+- name: Reload the partition table
+  ansible.builtin.command:
+    argv:
+      - partprobe
+      - "{{ mongodb_data_disk }}"
+  when: not _mongodb_part.stat.exists
+  changed_when: false
+
+- name: Wait for the data partition node
+  ansible.builtin.wait_for:
+    path: "{{ mongodb_data_partition }}"
+    timeout: 30
+
+- name: Read the data partition filesystem type
+  ansible.builtin.command:
+    argv:
+      - blkid
+      - -o
+      - value
+      - -s
+      - TYPE
+      - "{{ mongodb_data_partition }}"
+  register: _mongodb_fs
+  changed_when: false
+  failed_when: false
+
+- name: Refuse a data partition that already has another filesystem
+  ansible.builtin.assert:
+    that:
+      - (_mongodb_fs.stdout | default('') | trim) in ['', 'xfs']
+    fail_msg: >-
+      {{ mongodb_data_partition }} has filesystem
+      {{ _mongodb_fs.stdout | trim }}, expected xfs or an empty partition.
+
+- name: Format the data partition with XFS
+  ansible.builtin.command:
+    argv:
+      - mkfs.xfs
+      - "{{ mongodb_data_partition }}"
+  when: (_mongodb_fs.stdout | default('') | trim) == ''
+  changed_when: true
+
+- name: Ensure the MongoDB data mount point exists
+  ansible.builtin.file:
+    path: "{{ mongodb_data_dir }}"
+    state: directory
+    mode: "0750"
+
+- name: Mount the data disk
+  ansible.posix.mount:
+    path: "{{ mongodb_data_dir }}"
+    src: "{{ mongodb_data_partition }}"
+    fstype: xfs
+    opts: defaults,noatime
+    state: mounted

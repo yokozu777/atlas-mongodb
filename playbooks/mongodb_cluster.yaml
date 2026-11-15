@@ -1,0 +1,32 @@
+---
+# MongoDB replica set: three members, no balancer.
+
+- hosts: localhost
+  gather_facts: false
+  tags: [00_ensure_workspace]
+  roles:
+    - role: 00_ensure_workspace
+
+- hosts: localhost
+  gather_facts: false
+  roles:
+    - role: 01_validate_vars
+      tags: 01_validate_vars
+
+- name: Install MongoDB nodes
+  hosts: "{{ mongodb_hosts | default('mongo_cluster') }}"
+  become: true
+  gather_facts: true
+  strategy: linear
+  roles:
+    - role: 200_mongodb_node
+      tags: 200_mongodb_node
+
+- name: Initiate the replica set
+  hosts: "{{ mongodb_hosts | default('mongo_cluster') }}"
+  become: true
+  gather_facts: true
+  strategy: linear
+  roles:
+    - role: 201_mongodb_replicaset
+      tags: 201_mongodb_replicaset

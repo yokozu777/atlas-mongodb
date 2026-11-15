@@ -1,0 +1,162 @@
+---
+- name: Wait for mongod
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ mongodb_port }}"
+    timeout: 90
+
+- name: Prepare replica set scripts
+  ansible.builtin.file:
+    path: /root/.ansible-mongodb
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Render replica set scripts
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: "/root/.ansible-mongodb/{{ item | regex_replace('\\.j2$', '') }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop:
+    - initiate.js.j2
+    - wait_primary.js.j2
+    - create_admin.js.j2
+    - verify.js.j2
+  no_log: true
+
+- name: Initiate the replica set once
+  ansible.builtin.command:
+    argv:
+      - mongosh
+      - --quiet
+      - --host
+      - 127.0.0.1
+      - --port
+      - "{{ mongodb_port | string }}"
+      - --file
+      - /root/.ansible-mongodb/initiate.js
+  register: _mongodb_initiate
+  changed_when: "'INITIATED' in _mongodb_initiate.stdout"
+  delegate_to: "{{ groups[mongodb_hosts] | sort | first }}"
+  run_once: true
+
+- name: Wait until the preferred member is primary
+  ansible.builtin.command:
+    argv:
+      - mongosh
+      - --quiet
+      - --host
+      - 127.0.0.1
+      - --port
+      - "{{ mongodb_port | string }}"
+      - --file
+      - /root/.ansible-mongodb/wait_primary.js
+  register: _mongodb_primary
+  changed_when: false
+  retries: 30
+  delay: 2
+  until: "'PRIMARY' in _mongodb_primary.stdout or 'NEED_AUTH' in _mongodb_primary.stdout"
+  delegate_to: "{{ groups[mongodb_hosts] | sort | first }}"
+  run_once: true
+
+- name: Wait until the preferred member is primary with authentication
+  ansible.builtin.command:
+    argv:
+      - mongosh
+      - --quiet
+      - --username
+      - "{{ mongodb_admin_user }}"
+      - --password
+      - "{{ mongodb_admin_password }}"
+      - --authenticationDatabase
+      - admin
+      - --host
+      - 127.0.0.1
+      - --port
+      - "{{ mongodb_port | string }}"
+      - --file
+      - /root/.ansible-mongodb/wait_primary.js
+  register: _mongodb_primary_auth
+  changed_when: false
+  retries: 30
+  delay: 2
+  until: "'PRIMARY' in _mongodb_primary_auth.stdout"
+  when: "'NEED_AUTH' in _mongodb_primary.stdout"
+  delegate_to: "{{ groups[mongodb_hosts] | sort | first }}"
+  run_once: true
+  no_log: true
+
+- name: Create the admin user
+  ansible.builtin.command:
+    argv:
+      - mongosh
+      - --quiet
+      - --host
+      - 127.0.0.1
+      - --port
+      - "{{ mongodb_port | string }}"
+      - --file
+      - /root/.ansible-mongodb/create_admin.js
+  register: _mongodb_admin
+  changed_when: "'CREATED' in _mongodb_admin.stdout"
+  delegate_to: "{{ groups[mongodb_hosts] | sort | first }}"
+  run_once: true
+  no_log: true
+
+- name: Create the admin user with authentication
+  ansible.builtin.command:
+    argv:
+      - mongosh
+      - --quiet
+      - --username
+      - "{{ mongodb_admin_user }}"
+      - --password
+      - "{{ mongodb_admin_password }}"
+      - --authenticationDatabase
+      - admin
+      - --host
+      - 127.0.0.1
+      - --port
+      - "{{ mongodb_port | string }}"
+      - --file
+      - /root/.ansible-mongodb/create_admin.js
+  register: _mongodb_admin_auth
+  changed_when: "'CREATED' in _mongodb_admin_auth.stdout"
+  when: "'NEED_AUTH' in (_mongodb_admin.stdout | default(''))"
+  delegate_to: "{{ groups[mongodb_hosts] | sort | first }}"
+  run_once: true
+  no_log: true
+
+- name: Require one primary and two secondaries
+  ansible.builtin.command:
+    argv:
+      - mongosh
+      - --quiet
+      - --username
+      - "{{ mongodb_admin_user }}"
+      - --password
+      - "{{ mongodb_admin_password }}"
+      - --authenticationDatabase
+      - admin
+      - --host
+      - 127.0.0.1
+      - --port
+      - "{{ mongodb_port | string }}"
+      - --file
+      - /root/.ansible-mongodb/verify.js
+  register: _mongodb_verify
+  changed_when: false
+  retries: 30
+  delay: 2
+  until: "'OK' in _mongodb_verify.stdout"
+  delegate_to: "{{ groups[mongodb_hosts] | sort | first }}"
+  run_once: true
+  no_log: true
+
+- name: Remove replica set scripts
+  ansible.builtin.file:
+    path: /root/.ansible-mongodb
+    state: absent

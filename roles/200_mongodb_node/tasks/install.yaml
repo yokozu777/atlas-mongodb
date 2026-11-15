@@ -1,0 +1,58 @@
+---
+- name: Install MongoDB apt prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Debian"
+
+- name: Install the MongoDB apt key
+  ansible.builtin.shell: |
+    set -euo pipefail
+    install -d -m 0755 /usr/share/keyrings
+    curl -fsSL {{ mongodb_gpg_key_url }} \
+      | gpg --dearmor -o /usr/share/keyrings/mongodb-server-{{ mongodb_version }}.gpg
+    chmod 0644 /usr/share/keyrings/mongodb-server-{{ mongodb_version }}.gpg
+  args:
+    executable: /bin/bash
+    creates: "/usr/share/keyrings/mongodb-server-{{ mongodb_version }}.gpg"
+  when: ansible_os_family == "Debian"
+
+- name: Add the MongoDB apt repository
+  ansible.builtin.copy:
+    dest: "/etc/apt/sources.list.d/mongodb-org-{{ mongodb_version }}.list"
+    mode: "0644"
+    content: >-
+      deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-{{ mongodb_version }}.gpg ]
+      https://repo.mongodb.org/apt/{{ 'ubuntu' if ansible_distribution == 'Ubuntu' else 'debian' }}
+      {{ ansible_distribution_release }}/mongodb-org/{{ mongodb_version }}
+      {{ 'multiverse' if ansible_distribution == 'Ubuntu' else 'main' }}
+  when: ansible_os_family == "Debian"
+
+- name: Add the MongoDB yum repository
+  ansible.builtin.copy:
+    dest: "/etc/yum.repos.d/mongodb-org-{{ mongodb_version }}.repo"
+    mode: "0644"
+    content: |
+      [mongodb-org-{{ mongodb_version }}]
+      name=MongoDB Repository
+      baseurl=https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/{{ mongodb_version }}/x86_64/
+      gpgcheck=1
+      enabled=1
+      gpgkey={{ mongodb_gpg_key_url }}
+  when: ansible_os_family == "RedHat"
+
+- name: Import the MongoDB repository key
+  ansible.builtin.rpm_key:
+    key: "{{ mongodb_gpg_key_url }}"
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Install MongoDB
+  ansible.builtin.package:
+    name: mongodb-org
+    state: present
+    update_cache: true

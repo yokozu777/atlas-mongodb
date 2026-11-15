@@ -1,0 +1,39 @@
+const admin = db.getSiblingDB("admin");
+
+function isAuthError(error) {
+  const message = error.message || String(error);
+  return message.includes("Authentication") || message.includes("Unauthorized") || message.includes("not authorized") || error.code === 13;
+}
+
+let existing = null;
+try {
+  existing = admin.getUser("{{ mongodb_admin_user }}");
+} catch (error) {
+  if (!isAuthError(error)) {
+    throw error;
+  }
+}
+if (existing) {
+  print("EXISTS");
+  quit(0);
+}
+
+try {
+  admin.createUser({
+    user: "{{ mongodb_admin_user }}",
+    pwd: "{{ mongodb_admin_password }}",
+    roles: [{ role: "root", db: "admin" }]
+  });
+  print("CREATED");
+} catch (error) {
+  const message = error.message || String(error);
+  if (error.code === 51003 || message.includes("already exists")) {
+    print("EXISTS");
+    quit(0);
+  }
+  if (isAuthError(error)) {
+    print("NEED_AUTH");
+    quit(0);
+  }
+  throw error;
+}

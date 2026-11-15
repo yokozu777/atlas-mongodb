@@ -1,0 +1,18 @@
+let status;
+try {
+  status = db.adminCommand({ replSetGetStatus: 1 });
+} catch (error) {
+  const message = error.message || String(error);
+  if (message.includes("Authentication") || message.includes("Unauthorized") || error.code === 13) {
+    print("NEED_AUTH");
+    quit(0);
+  }
+  throw error;
+}
+const self = status.members.find((member) => member.self);
+if (self && self.stateStr === "PRIMARY") {
+  print("PRIMARY");
+} else {
+  print("WAIT");
+  quit(2);
+}

@@ -1,0 +1,5 @@
+---
+cluster_domain: mongodb.example.com
+cluster_workspace_id: "{{ lookup('ansible.builtin.env', 'CLUSTER_WORKSPACE_ID') | default(cluster_domain, true) }}"
+cluster_workspace_parent: ./workspace
+cluster_workspace_root: "{{ cluster_workspace_parent }}/{{ cluster_workspace_id }}"

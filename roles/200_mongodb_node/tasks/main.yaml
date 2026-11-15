@@ -1,0 +1,122 @@
+---
+- name: Mount the MongoDB data disk
+  ansible.builtin.import_tasks: data_disk.yaml
+
+- name: Collect service facts
+  ansible.builtin.service_facts:
+
+- name: Open the MongoDB port in firewalld
+  ansible.posix.firewalld:
+    zone: public
+    port: "{{ mongodb_port }}/tcp"
+    permanent: true
+    state: enabled
+  when: (ansible_facts.services['firewalld.service'] | default({})).state | default('') == 'running'
+
+- name: Reload firewalld after the MongoDB port
+  ansible.builtin.systemd:
+    name: firewalld
+    state: reloaded
+  when: (ansible_facts.services['firewalld.service'] | default({})).state | default('') == 'running'
+
+- name: Install MongoDB
+  ansible.builtin.import_tasks: install.yaml
+
+- name: Resolve the MongoDB service account
+  ansible.builtin.set_fact:
+    mongodb_service_user: "{{ 'mongodb' if ansible_os_family == 'Debian' else 'mongod' }}"
+    mongodb_service_group: "{{ 'mongodb' if ansible_os_family == 'Debian' else 'mongod' }}"
+
+- name: Give MongoDB ownership of the data directory
+  ansible.builtin.file:
+    path: "{{ mongodb_data_dir }}"
+    state: directory
+    owner: "{{ mongodb_service_user }}"
+    group: "{{ mongodb_service_group }}"
+    mode: "0750"
+
+- name: Ensure the key file directory exists
+  ansible.builtin.file:
+    path: "{{ mongodb_keyfile_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the replica set key file
+  ansible.builtin.copy:
+    dest: "{{ mongodb_keyfile_path }}"
+    content: "{{ mongodb_keyfile }}\n"
+    owner: "{{ mongodb_service_user }}"
+    group: "{{ mongodb_service_group }}"
+    mode: "0400"
+  no_log: true
+  notify: Restart mongod
+
+- name: Render mongod.conf
+  ansible.builtin.template:
+    src: mongod.conf.j2
+    dest: /etc/mongod.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart mongod
+
+- name: Parse the running kernel version
+  ansible.builtin.set_fact:
+    mongodb_kernel_parts: "{{ ansible_kernel | regex_search('^([0-9]+)\\.([0-9]+)\\.([0-9]+)', '\\1', '\\2', '\\3') }}"
+
+- name: Detect kernels that refuse to start this MongoDB build
+  ansible.builtin.set_fact:
+    mongodb_kernel_blocks_start: >-
+      {{
+        (
+          (mongodb_kernel_parts[0] | int == 6 and mongodb_kernel_parts[1] | int >= 19)
+          or (
+            mongodb_kernel_parts[0] | int == 7
+            and mongodb_kernel_parts[1] | int == 0
+            and mongodb_kernel_parts[2] | int <= 13
+          )
+        )
+      }}
+
+- name: Ensure the mongod drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/mongod.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: mongodb_kernel_blocks_start | bool
+
+- name: Let glibc own rseq on kernels 6.19 through 7.0.13
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/mongod.service.d/rseq.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Service]
+      Environment="GLIBC_TUNABLES=glibc.pthread.rseq=1"
+  when: mongodb_kernel_blocks_start | bool
+  notify: Restart mongod
+
+- name: Remove the rseq workaround on kernels MongoDB accepts
+  ansible.builtin.file:
+    path: /etc/systemd/system/mongod.service.d/rseq.conf
+    state: absent
+  when: not (mongodb_kernel_blocks_start | bool)
+  notify: Restart mongod
+
+- name: Clear a failed mongod unit
+  ansible.builtin.command:
+    argv: [systemctl, reset-failed, mongod]
+  changed_when: false
+  failed_when: false
+
+- name: Enable and start mongod
+  ansible.builtin.systemd:
+    name: mongod
+    state: started
+    enabled: true
+    daemon_reload: true

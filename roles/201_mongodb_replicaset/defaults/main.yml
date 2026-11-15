@@ -1,0 +1,5 @@
+---
+mongodb_hosts: mongo_cluster
+mongodb_replset_name: atlas
+mongodb_port: 27017
+mongodb_admin_user: admin
